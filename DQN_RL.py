@@ -1,18 +1,28 @@
 import numpy as np
+import matplotlib.pyplot as plt
 from stable_baselines3 import DQN
 from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.callbacks import EvalCallback
 from env_RL import TaskOffloadingEnv
 
 # Initialize environment
 env = TaskOffloadingEnv(alpha=0.7)
 env = DummyVecEnv([lambda: env])  # DQN requires a vectorized environment
 
+# Create evaluation environment
+eval_env = DummyVecEnv([lambda: TaskOffloadingEnv(alpha=0.7)])
+
 # Define the DQN agent
-# model = DQN("MlpPolicy", env, verbose=1, tensorboard_log="./dqn_tensorboard/")
 model = DQN("MlpPolicy", env, verbose=1, tensorboard_log=None)
 
-# Train the agent
-model.learn(total_timesteps=100000)
+# Define the evaluation callback
+eval_callback = EvalCallback(eval_env,
+                             best_model_save_path='./logs/',
+                             log_path='./logs/',
+                             eval_freq=500)
+
+# Train the agent with callback
+model.learn(total_timesteps=100000, callback=eval_callback)
 
 # Save the trained model
 model.save("dqn_task_offloading")
@@ -47,3 +57,11 @@ while not done:
     obs, _, done, _ = env.step(action)
 
 print("Actions taken by the trained agent:", actions_taken)
+
+# Plot the results
+results = np.load('logs/evaluations.npz')
+plt.plot(results['timesteps'], results['results'])
+plt.xlabel('Timesteps')
+plt.ylabel('Average Reward')
+plt.title('Training Convergence Plot')
+plt.show()
