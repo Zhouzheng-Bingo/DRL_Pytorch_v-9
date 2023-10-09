@@ -12,7 +12,7 @@ env = DummyVecEnv([lambda: env])  # DQN requires a vectorized environment
 model = DQN("MlpPolicy", env, verbose=1, tensorboard_log=None)
 
 # Train the agent
-model.learn(total_timesteps=1000)
+model.learn(total_timesteps=100000)
 
 # Save the trained model
 model.save("dqn_task_offloading")
