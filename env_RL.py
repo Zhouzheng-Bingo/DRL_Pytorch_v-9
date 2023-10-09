@@ -62,6 +62,8 @@ class TaskOffloadingEnv(gym.Env):
         super(TaskOffloadingEnv, self).__init__()
         self.alpha = alpha
 
+        # self.compute_requirements = [i * 10 for i in range(1, 26)]  # example compute requirements
+        # self.data_transmission_requirements = [i for i in range(1, 26)]  # example data transmission requirements
         self.compute_requirements = \
             [25, 24, 6, 4, 1,
              8, 15, 7, 20, 10,
@@ -74,26 +76,25 @@ class TaskOffloadingEnv(gym.Env):
              9, 10, 2, 15, 23,
              0, 12, 11, 7, 5,
              9, 8, 20, 16, 24]
-
         self.action_space = gym.spaces.Discrete(2)  # Either edge or server for each task
-
-        # Assuming the maximum task value is 25 and the maximum requirement is 250
-        high_values = np.array([250, 250, 25, 25, 1], dtype=np.float32)
-        self.observation_space = gym.spaces.Box(low=0, high=high_values, dtype=np.float32)  # As defined above
+        self.observation_space = gym.spaces.Box(low=0, high=250, shape=(6,), dtype=np.float32)  # As defined above
 
         self.current_task = 0
-
-
+        self.previous_action = -1
 
     def reset(self):
         self.current_task = 0
-        initial_state = [self.compute_requirements[self.current_task],
-                         self.data_transmission_requirements[self.current_task],
-                         self.current_task, 25 - self.current_task, 0]  # Last value is for previous action
+        self.previous_action = -1
+        initial_state = [
+            self.compute_requirements[self.current_task],
+            self.data_transmission_requirements[self.current_task],
+            self.current_task, 25 - self.current_task, 0,
+            self.previous_action
+        ]  # Last value is for previous action
         return np.array(initial_state)
 
     def step(self, action):
-        if self.current_task >= 24:
+        if self.current_task == 25:
             # All tasks are done
             return self.reset()
 
@@ -106,31 +107,40 @@ class TaskOffloadingEnv(gym.Env):
 
         normalized_latency = (latency - min_latency) / (max_latency - min_latency)
         normalized_throughput = (throughput - min_throughput) / (max_throughput - min_throughput)
-        reward = -self.alpha * normalized_latency + (1 - self.alpha) * normalized_throughput
+
+        # Adjusted reward function
+        # reward = -np.log(normalized_latency + 1) + (1 - self.alpha) * normalized_throughput
+        reward = -self.alpha * np.log(normalized_latency + 1) + (1 - self.alpha) * np.log(normalized_throughput + 1)
+
+        self.previous_action = action
         self.current_task += 1
 
-        done = self.current_task >= 24
+        if self.current_task == 25:
+            done = True
+        else:
+            done = False
 
         next_state = [self.compute_requirements[self.current_task] if self.current_task < 25 else 0,
                       self.data_transmission_requirements[self.current_task] if self.current_task < 25 else 0,
-                      self.current_task, 25 - self.current_task, action]
+                      self.current_task, 25 - self.current_task, action,
+                      self.previous_action]
 
         return np.array(next_state), reward, done, {}
 
     def render(self, mode="human"):
         pass
 
+if __name__ == "__main__":
+    # Sample usage
+    env = TaskOffloadingEnv(alpha=0.7)
 
-# Sample usage
-env = TaskOffloadingEnv(alpha=0.7)
+    # Reset environment
+    state = env.reset()
+    total_reward = 0
+    done = False
+    while not done:
+        action = np.random.choice([0, 1])  # Random action for testing
+        next_state, reward, done, _ = env.step(action)
+        total_reward += reward
 
-# Reset environment
-state = env.reset()
-total_reward = 0
-done = False
-while not done:
-    action = env.action_space.sample()  # Random action for testing
-    next_state, reward, done, _ = env.step(action)
-    total_reward += reward
-
-print(f"Total Reward after completing all tasks: {total_reward}")
+    print(f"Total Reward after completing all tasks: {total_reward}")

@@ -1,7 +1,7 @@
 import numpy as np
 from stable_baselines3 import DQN
 from stable_baselines3.common.vec_env import DummyVecEnv
-from newenv_rlv410 import TaskOffloadingEnv
+from env_RL import TaskOffloadingEnv
 
 # Initialize environment
 env = TaskOffloadingEnv(alpha=0.7)
