@@ -110,7 +110,8 @@ class TaskOffloadingEnv(gym.Env):
 
         # Adjusted reward function
         # reward = -np.log(normalized_latency + 1) + (1 - self.alpha) * normalized_throughput
-        reward = -self.alpha * np.log(normalized_latency + 1) + (1 - self.alpha) * np.log(normalized_throughput + 1)
+        reward = -self.alpha * np.log(normalized_latency + 1e-3) + \
+                 (1 - self.alpha) * np.log(normalized_throughput + 1e-3)
 
         self.previous_action = action
         self.current_task += 1
