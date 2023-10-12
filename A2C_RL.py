@@ -1,15 +1,14 @@
-import gym
-from stable_baselines3 import PPO
 import numpy as np
+import matplotlib.pyplot as plt
+from stable_baselines3 import A2C
+from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 from stable_baselines3.common.callbacks import EvalCallback, BaseCallback
-from stable_baselines3.common.vec_env import DummyVecEnv
-# 导入您自定义的环境
-from env_RL import TaskOffloadingEnv
+from env_RL import TaskOffloadingEnv  # Assumes your environment is defined in this module
 
 
-class CustomPPOCallback(BaseCallback):
+class CustomCallback(BaseCallback):
     def __init__(self, eval_env, check_freq, log_dir):
-        super(CustomPPOCallback, self).__init__()
+        super(CustomCallback, self).__init__()
         self.eval_env = eval_env
         self.check_freq = check_freq
         self.log_dir = log_dir
@@ -21,7 +20,7 @@ class CustomPPOCallback(BaseCallback):
             obs = self.eval_env.reset()
             episode_rewards = []
             episode_actions = []
-            for _ in range(10):
+            for _ in range(10):  # Evaluate over 10 episodes
                 done, ep_reward = False, 0
                 while not done:
                     action, _ = self.model.predict(obs, deterministic=True)
@@ -33,6 +32,7 @@ class CustomPPOCallback(BaseCallback):
             mean_reward = np.mean(episode_rewards)
             std_reward = np.std(episode_rewards)
 
+            # Log the results in TensorBoard
             self.logger.record('evaluation/mean_reward', mean_reward)
             self.logger.record('evaluation/std_reward', std_reward)
 
@@ -43,40 +43,43 @@ class CustomPPOCallback(BaseCallback):
 
 
 if __name__ == '__main__':
-    # 创建环境
-    env = TaskOffloadingEnv(alpha=0.5)
-    env = DummyVecEnv([lambda: env])
-
+    # Initialize environments
+    num_envs = 4
+    env = SubprocVecEnv([lambda: TaskOffloadingEnv(alpha=0.5) for _ in range(num_envs)])
     eval_env = DummyVecEnv([lambda: TaskOffloadingEnv(alpha=0.7)])
 
-    model = PPO("MlpPolicy", env, verbose=1, tensorboard_log="./tensorboard_logs/")
+    # Define the A2C agent
+    model = A2C("MlpPolicy", env, verbose=1, tensorboard_log="./tensorboard_logs/")
 
+    # Define the evaluation callback
     eval_callback = EvalCallback(eval_env,
                                  best_model_save_path='./logs/',
                                  log_path='./logs/',
                                  eval_freq=1000)
+    custom_callback = CustomCallback(eval_env, check_freq=1000, log_dir="./tensorboard_logs/")
 
-    custom_ppo_callback = CustomPPOCallback(eval_env, check_freq=1000, log_dir="./tensorboard_logs/")
+    # Train the agent with callback
+    model.learn(total_timesteps=200000, callback=[eval_callback, custom_callback])
 
-    model.learn(total_timesteps=200000, callback=[eval_callback, custom_ppo_callback])
+    # Save the trained model
+    model.save("a2c_task_offloading")
 
-    # 保存模型
-    model.save("ppo_task_offloading")
-
-    # 加载模型
-    loaded_model = PPO.load("ppo_task_offloading")
+    # Load the trained model for evaluation
+    model = A2C.load("a2c_task_offloading")
 
     # Evaluate the trained agent's performance
     num_episodes = 10
     average_reward = 0
     all_actions = []
 
+    eval_env = DummyVecEnv([lambda: TaskOffloadingEnv(alpha=0.7)])  # Use a non-vectorized env for evaluation
+
     for episode in range(num_episodes):
         obs = eval_env.reset()
         episode_reward = 0
         done = False
         while not done:
-            action, _ = loaded_model.predict(obs, deterministic=True)
+            action, _ = model.predict(obs)
             all_actions.append(action[0])
             obs, reward, done, info = eval_env.step(action)
             episode_reward += reward
@@ -91,7 +94,7 @@ if __name__ == '__main__':
     actions_taken = []
 
     while not done:
-        action, _ = loaded_model.predict(obs, deterministic=True)
+        action, _ = model.predict(obs)
         actions_taken.append(action[0])
         obs, _, done, _ = eval_env.step(action)
 
