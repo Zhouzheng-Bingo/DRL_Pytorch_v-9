@@ -1,5 +1,6 @@
 import numpy as np
 import gym
+from per_layer_time import partition
 
 # latency_edge = [10 + i*2 for i in range(25)]
 latency_edge = \
@@ -93,6 +94,21 @@ class TaskOffloadingEnv(gym.Env):
         ]  # Last value is for previous action
         return np.array(initial_state)
 
+    def critic_evaluate(self, action):
+        """
+        This function evaluates the given action using the per_layer_time's partition function.
+        It will return a reward value based on the evaluation.
+        """
+        # We assume that the action will somehow map to the parameters needed for the partition function.
+        # Here, we will call the partition function and obtain the results.
+        best_throughout_point, total_latency, _, _, _, _, _, _ = partition(*action)
+
+        # For simplicity, we'll use total_latency as our reward, but this can be adjusted based on your needs.
+        # The logic here can be made more complex based on how you want to evaluate the action.
+        reward = -total_latency  # We use negative because we want to minimize latency.
+
+        return reward
+
     def step(self, action):
         if self.current_task == 25:
             # All tasks are done
@@ -112,6 +128,9 @@ class TaskOffloadingEnv(gym.Env):
         # reward = -np.log(normalized_latency + 1) + (1 - self.alpha) * normalized_throughput
         reward = -self.alpha * np.log(normalized_latency + 1e-3) + \
                  (1 - self.alpha) * np.log(normalized_throughput + 1e-3)
+        # Incorporate the critic's evaluation into the reward
+        critic_reward = self.critic_evaluate(action)
+        reward += critic_reward
 
         self.previous_action = action
         self.current_task += 1
@@ -130,6 +149,7 @@ class TaskOffloadingEnv(gym.Env):
 
     def render(self, mode="human"):
         pass
+
 
 if __name__ == "__main__":
     # Sample usage
