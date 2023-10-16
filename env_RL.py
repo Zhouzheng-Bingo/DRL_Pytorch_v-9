@@ -100,11 +100,13 @@ class TaskOffloadingEnv(gym.Env):
 
     def reset(self):
         self.current_task = 0
+        self.previous_action = -1
         self.actions_taken = []  # Reset the actions taken list
         initial_state = [
             self.compute_requirements[self.current_task],
             self.data_transmission_requirements[self.current_task],
             self.current_task, 25 - self.current_task, 0,
+            self.previous_action
         ]  # Last value is for previous action
         return np.array(initial_state)
 
@@ -138,6 +140,7 @@ class TaskOffloadingEnv(gym.Env):
         reward = -self.alpha * np.log(normalized_latency + 1e-3) + \
                  (1 - self.alpha) * np.log(normalized_throughput + 1e-3)
 
+        self.previous_action = action
         self.actions_taken.append(action)
         # Add the critic's evaluation to the reward
         critic_reward = self.critic_evaluate()
@@ -153,7 +156,7 @@ class TaskOffloadingEnv(gym.Env):
         next_state = [self.compute_requirements[self.current_task] if self.current_task < 25 else 0,
                       self.data_transmission_requirements[self.current_task] if self.current_task < 25 else 0,
                       self.current_task, 25 - self.current_task, action,
-                      self.actions_taken[-1] if self.actions_taken else -1]
+                      self.previous_action]
 
         return np.array(next_state), reward, done, {}
 

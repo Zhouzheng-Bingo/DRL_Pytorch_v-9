@@ -1,9 +1,8 @@
 import numpy as np
-import matplotlib.pyplot as plt
 from stable_baselines3 import A2C
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 from stable_baselines3.common.callbacks import EvalCallback, BaseCallback
-from env_RL import TaskOffloadingEnv  # Assumes your environment is defined in this module
+from env_RL import TaskOffloadingEnv
 
 
 class CustomCallback(BaseCallback):
@@ -59,7 +58,7 @@ if __name__ == '__main__':
     custom_callback = CustomCallback(eval_env, check_freq=1000, log_dir="./tensorboard_logs/")
 
     # Train the agent with callback
-    model.learn(total_timesteps=200000, callback=[eval_callback, custom_callback])
+    model.learn(total_timesteps=5000, callback=[eval_callback, custom_callback])
 
     # Save the trained model
     model.save("a2c_task_offloading")
@@ -97,5 +96,5 @@ if __name__ == '__main__':
         action, _ = model.predict(obs)
         actions_taken.append(action[0])
         obs, _, done, _ = eval_env.step(action)
-
+        eval_env.envs[0].actions_taken.append(action[0])
     print("Actions taken by the trained agent:", actions_taken)
