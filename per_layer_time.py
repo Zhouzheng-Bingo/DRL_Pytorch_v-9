@@ -13,10 +13,9 @@ def partition(N, t, t_, data_t, data_t_):
     best_throughout_point = 0
     total_latency = 0
     for i in range(len(t)):
-        if (t[:i].sum() + data_t[i]) >= N * (t_[i:].sum() + data_t_[i]):
+        if (sum(t[:i]) + data_t[i]) >= N * (sum(t_[i:]) + data_t_[i]):
             best_throughout_point = i
-            total_latency = t[:i].sum() + data_t[i] + N * (t_[i:].sum() + data_t_[i])
-            print(best_throughout_point, t[:i].sum() + data_t[i], N * (t_[i:].sum() + data_t_[i]))
+            total_latency = sum(t[:i]) + data_t[i] + N * (sum(t_[i:]) + data_t_[i])
             break
     latency_edge = []
     latency_server = []
@@ -26,18 +25,24 @@ def partition(N, t, t_, data_t, data_t_):
     latency_tolerable = 480
     partition_point = 0
     for i in range(len(t)):
-        latency_edge.append(t[:i].sum())
-        latency_server.append(N * t_[i:].sum())
+        latency_edge.append(sum(t[:i]))
+        latency_server.append(N * sum(t_[i:]))
         data_transmission.append(data_t[i] + N * data_t_[i])
-        latency.append(t[:i].sum() + N * t_[i:].sum() + data_t[i] + N * data_t_[i])
-        throughput.append(max((t[:i].sum() + data_t[i]), N * (t_[i:].sum() + data_t_[i])))
+        latency.append(sum(t[:i]) + N * sum(t_[i:]) + data_t[i] + N * data_t_[i])
+        throughput.append(max((sum(t[:i]) + data_t[i]), N * (sum(t_[i:]) + data_t_[i])))
     for i in range(len(t)):
         if latency[i] <= latency_tolerable:
-            if (t[:i].sum() + data_t[i]) >= N * (t_[i:].sum() + data_t_[i]):
+            if (sum(t[:i]) + data_t[i]) >= N * (sum(t_[i:]) + data_t_[i]):
                 partition_point = i
-                print(partition_point, latency[i])
                 break
     return best_throughout_point, total_latency, latency_edge, latency_server, data_transmission, throughput, latency, partition_point
+
+
+def partition_recommendations(N, t, t_, data_t, data_t_):
+    best_throughout_point, _, _, _, _, _, _, _ = partition(N, t, t_, data_t, data_t_)
+    # 根据切分点为每个任务提供位置建议
+    recommendations = ['edge' if i <= best_throughout_point else 'cloud' for i in range(len(t))]
+    return recommendations
 
 
 if __name__ == '__main__':

@@ -1,7 +1,8 @@
 import numpy as np
 import gym
-from per_layer_time import partition
+from per_layer_time import partition_recommendations
 
+# t
 # latency_edge = [10 + i*2 for i in range(25)]
 latency_edge = \
     [0.002274322509765625, 0.05997405529022217, 0.050271587371826174, 0.029629735946655272,
@@ -11,6 +12,7 @@ latency_edge = \
      0.004373922348022461, 0.0036278438568115236, 0.005011301040649414, 0.004368014335632324,
      0.001481480598449707, 0.0042125463485717775, 0.0028664302825927735, 0.0031097793579101564,
      0.00032026290893554687]
+# t_
 # latency_server = [50 - i for i in range(25)]
 latency_server = \
     [9.984970092773438e-05, 0.004100675582885742, 0.002580385208129883, 0.001679844856262207,
@@ -20,13 +22,24 @@ latency_server = \
      0.0008580923080444336, 0.0008201265335083008, 0.0009300851821899414, 0.000800185203552246,
      0.0003800058364868164, 0.0005401086807250977, 0.0005399370193481445, 0.0006599569320678711,
      5.9995651245117184e-05]
+# data_t
 # data_transmission = [2, 4, 6, 7, 10, 12, 15, 17, 18, 20, 21, 22, 23, 24, 24.5, 25, 25.5, 25.8, 26, 26.1, 26.2, 26.3, 26.4, 26.5, 26.6]
-data_transmission = \
+data_transmission_t = \
     [6.70242310e+00, 6.11328125e+01, 3.05664062e+01, 3.05664062e+01, 1.53320312e+01,
      1.53320312e+01, 7.71484375e+00, 7.71484375e+00, 3.90625000e+00, 3.90625000e+00,
      1.95312500e+00, 1.95312500e+00, 9.76562500e-01, 9.76562500e-01, 4.88281250e-01,
      4.88281250e-01, 2.92968750e-01, 2.92968750e-01, 1.95312500e-01, 1.95312500e-01,
      7.62939453e-04, 4.57763672e-02, 9.15527344e-02, 1.83105469e-01, 7.62939453e-04]
+# data_t_
+data_transmission_t_ = \
+    [5.36193848e+00, 4.89062500e+01, 2.44531250e+01, 2.44531250e+01,
+     1.22656250e+01, 1.22656250e+01, 6.17187500e+00, 6.17187500e+00,
+     3.12500000e+00, 3.12500000e+00, 1.56250000e+00, 1.56250000e+00,
+     7.81250000e-01, 7.81250000e-01, 3.90625000e-01, 3.90625000e-01,
+     2.34375000e-01, 2.34375000e-01, 1.56250000e-01, 1.56250000e-01,
+     6.10351562e-04, 3.66210938e-02, 7.32421875e-02, 1.46484375e-01,
+     6.10351562e-04]
+
 # throughput_edge = [15 - i*0.5 for i in range(25)]
 throughput_edge = \
     [3862688.7621603487, 19021274.39551297, 13976966.488004338, 12883229.126237411,
@@ -83,31 +96,26 @@ class TaskOffloadingEnv(gym.Env):
         self.current_task = 0
         self.previous_action = -1
 
+        self.actions_taken = []
+
     def reset(self):
         self.current_task = 0
-        self.previous_action = -1
+        self.actions_taken = []  # Reset the actions taken list
         initial_state = [
             self.compute_requirements[self.current_task],
             self.data_transmission_requirements[self.current_task],
             self.current_task, 25 - self.current_task, 0,
-            self.previous_action
         ]  # Last value is for previous action
         return np.array(initial_state)
 
-    def critic_evaluate(self, action):
-        """
-        This function evaluates the given action using the per_layer_time's partition function.
-        It will return a reward value based on the evaluation.
-        """
-        # We assume that the action will somehow map to the parameters needed for the partition function.
-        # Here, we will call the partition function and obtain the results.
-        best_throughout_point, total_latency, _, _, _, _, _, _ = partition(*action)
+    def critic_evaluate(self):
+        if not self.actions_taken:
+            return 0
 
-        # For simplicity, we'll use total_latency as our reward, but this can be adjusted based on your needs.
-        # The logic here can be made more complex based on how you want to evaluate the action.
-        reward = -total_latency  # We use negative because we want to minimize latency.
-
-        return reward
+        critic_recommendations = partition_recommendations(2, latency_edge, latency_server, data_transmission_t, data_transmission_t_)
+        matched_decisions = sum([1 if act == rec else 0 for act, rec in zip(self.actions_taken, critic_recommendations)])
+        critic_reward = matched_decisions / len(self.actions_taken)
+        return critic_reward
 
     def step(self, action):
         if self.current_task == 25:
@@ -115,24 +123,26 @@ class TaskOffloadingEnv(gym.Env):
             return self.reset()
 
         if action == 0:  # Execute on edge
-            latency = latency_edge[self.current_task]
+            latency = latency_edge[self.current_task] + data_transmission_t[self.current_task]
             throughput = throughput_edge[self.current_task]
         else:  # Execute on server
-            latency = latency_server[self.current_task] + data_transmission[self.current_task]
+            latency = latency_server[self.current_task] + data_transmission_t_[self.current_task]
             throughput = throughput_server[self.current_task]
 
         normalized_latency = (latency - min_latency) / (max_latency - min_latency)
         normalized_throughput = (throughput - min_throughput) / (max_throughput - min_throughput)
 
-        # Adjusted reward function
-        # reward = -np.log(normalized_latency + 1) + (1 - self.alpha) * normalized_throughput
+        critic_weight = 1.0  # Adjust this based on the importance you want to give to the critic's recommendations
+
+        # Original reward based on latency and throughput
         reward = -self.alpha * np.log(normalized_latency + 1e-3) + \
                  (1 - self.alpha) * np.log(normalized_throughput + 1e-3)
-        # Incorporate the critic's evaluation into the reward
-        critic_reward = self.critic_evaluate(action)
-        reward += critic_reward
 
-        self.previous_action = action
+        self.actions_taken.append(action)
+        # Add the critic's evaluation to the reward
+        critic_reward = self.critic_evaluate()
+        reward += critic_weight * critic_reward
+
         self.current_task += 1
 
         if self.current_task == 25:
@@ -143,7 +153,7 @@ class TaskOffloadingEnv(gym.Env):
         next_state = [self.compute_requirements[self.current_task] if self.current_task < 25 else 0,
                       self.data_transmission_requirements[self.current_task] if self.current_task < 25 else 0,
                       self.current_task, 25 - self.current_task, action,
-                      self.previous_action]
+                      self.actions_taken[-1] if self.actions_taken else -1]
 
         return np.array(next_state), reward, done, {}
 
