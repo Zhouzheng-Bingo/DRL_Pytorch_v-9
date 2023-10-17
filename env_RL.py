@@ -113,7 +113,6 @@ class TaskOffloadingEnv(gym.Env):
     def critic_evaluate(self):
         if not self.actions_taken:
             return 0
-
         critic_recommendations = partition_recommendations(2, latency_edge, latency_server, data_transmission_t, data_transmission_t_)
         matched_decisions = sum([1 if act == rec else 0 for act, rec in zip(self.actions_taken, critic_recommendations)])
         critic_reward = matched_decisions / len(self.actions_taken)
@@ -144,7 +143,8 @@ class TaskOffloadingEnv(gym.Env):
         self.actions_taken.append(action)
         # Add the critic's evaluation to the reward
         critic_reward = self.critic_evaluate()
-        reward += critic_weight * critic_reward
+        normalized_critic_reward = (critic_reward - 0) / (1 - 0)  # Since min is 0 and max is 1
+        reward += critic_weight * normalized_critic_reward
 
         self.current_task += 1
 
