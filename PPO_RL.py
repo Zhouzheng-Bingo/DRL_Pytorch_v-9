@@ -1,8 +1,8 @@
-import gym
-from stable_baselines3 import PPO
 import numpy as np
+from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import EvalCallback, BaseCallback
 from stable_baselines3.common.vec_env import DummyVecEnv
+
 # 导入您自定义的环境
 from env_RL import TaskOffloadingEnv
 
@@ -58,7 +58,7 @@ if __name__ == '__main__':
 
     custom_ppo_callback = CustomPPOCallback(eval_env, check_freq=1000, log_dir="./tensorboard_logs/")
 
-    model.learn(total_timesteps=200000, callback=[eval_callback, custom_ppo_callback])
+    model.learn(total_timesteps=10000, callback=[eval_callback, custom_ppo_callback])
 
     # 保存模型
     model.save("ppo_task_offloading")
@@ -94,5 +94,5 @@ if __name__ == '__main__':
         action, _ = loaded_model.predict(obs, deterministic=True)
         actions_taken.append(action[0])
         obs, _, done, _ = eval_env.step(action)
-
+        env.envs[0].actions_taken.append(action)
     print("Actions taken by the trained agent:", actions_taken)
