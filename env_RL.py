@@ -110,18 +110,42 @@ class TaskOffloadingEnv(gym.Env):
         ]  # Last value is for previous action
         return np.array(initial_state)
 
+    # def critic_evaluate(self):
+    #     if not self.actions_taken:
+    #         return 0
+    #     critic_recommendations = partition_recommendations(2, latency_edge, latency_server, data_transmission_t, data_transmission_t_)
+    #     print("Critic's partition recommendation:", critic_recommendations)
+    #     matched_decisions = sum([1 if act == rec else 0 for act, rec in zip(self.actions_taken, critic_recommendations)])
+    #     critic_reward = matched_decisions / len(self.actions_taken)
+    #     return critic_reward
+
     def critic_evaluate(self):
         if not self.actions_taken:
             return 0
-        critic_recommendations = partition_recommendations(2, latency_edge, latency_server, data_transmission_t, data_transmission_t_)
-        matched_decisions = sum([1 if act == rec else 0 for act, rec in zip(self.actions_taken, critic_recommendations)])
-        critic_reward = matched_decisions / len(self.actions_taken)
+        critic_recommendations = partition_recommendations(2, latency_edge, latency_server, data_transmission_t,
+                                                           data_transmission_t_)
+        # Convert the values in critic_recommendations to integers
+        critic_recommendations = [int(val) for val in critic_recommendations]
+
+        # Convert all the values in self.actions_taken to integers
+        self.actions_taken = [int(act) for act in self.actions_taken]
+
+        print("Actions taken by the agent:", self.actions_taken)  # 打印智能体的行动
+        print("Critic's partition recommendation:", critic_recommendations)  # 打印critic的建议
+        matched_decisions = sum(
+            [1 if act == rec else 0 for act, rec in zip(self.actions_taken, critic_recommendations)])
+
+        print("Number of matched decisions:", matched_decisions)  # 打印匹配的数量
+        critic_reward = matched_decisions  # 直接返回匹配任务的数量
         return critic_reward
 
     def step(self, action):
         if self.current_task == 25:
             # All tasks are done
             return self.reset()
+
+        # Add the current action to the actions_taken list
+        self.actions_taken.append(action)
 
         if action == 0:  # Execute on edge
             latency = latency_edge[self.current_task] + data_transmission_t[self.current_task]
@@ -138,14 +162,14 @@ class TaskOffloadingEnv(gym.Env):
         # normalized_throughput = (throughput - min_throughput) / (max_throughput - min_throughput)
         normalized_throughput = (throughput - min_latency) / (max_latency - min_latency)
 
-        critic_weight = 10.0  # Adjust this based on the importance you want to give to the critic's recommendations
+        critic_weight = 100.0  # Adjust this based on the importance you want to give to the critic's recommendations
 
         # Original reward based on latency and throughput
         reward = -self.alpha * np.log(normalized_latency + 1e-3) + \
                  (1 - self.alpha) * np.log(normalized_throughput + 1e-3)
 
         self.previous_action = action
-        self.actions_taken.append(action)
+        # self.state.append(action[0])
         # Add the critic's evaluation to the reward
         critic_reward = self.critic_evaluate()
         normalized_critic_reward = (critic_reward - 0) / (1 - 0)  # Since min is 0 and max is 1

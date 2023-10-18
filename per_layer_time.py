@@ -57,7 +57,7 @@ def partition(N, t, t_, data_t, data_t_):
 def partition_recommendations(N, t, t_, data_t, data_t_):
     best_throughout_point, _, _, _, _, _, _, _ = partition(N, t, t_, data_t, data_t_)
     # 根据切分点为每个任务提供位置建议
-    recommendations = ['edge' if i <= best_throughout_point else 'cloud' for i in range(len(t))]
+    recommendations = ['0' if i <= best_throughout_point else '1' for i in range(len(t))]
     return recommendations
 
 
