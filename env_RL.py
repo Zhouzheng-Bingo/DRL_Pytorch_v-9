@@ -41,34 +41,34 @@ data_transmission_t_ = \
      6.10351562e-04]
 
 # throughput_edge = [15 - i*0.5 for i in range(25)]
-throughput_edge = \
-    [3862688.7621603487, 19021274.39551297, 13976966.488004338, 12883229.126237411,
-     62748446.4772795, 335078.22512172756, 201147.4180277644, 341278.77542362927,
-     178443.2029448546, 289101.5165324247, 139015.9324152796, 215083.80950931073,
-     106358.96480910413, 150844.82511560526, 79753.12359804267, 110956.937530071,
-     59148.98757829669, 71927.46467740077, 53050.799905928296, 57305.65690528417,
-     228.62774426073665, 16538.749286947925, 23945.877333373934, 54944.874617783746,
-     675.0004023315921]
-# throughput_server = [5 + i for i in range(25)]
-throughput_server = \
-    [87982236.4851958, 148355327.10273772, 74201246.74608992, 60706991.70393705,
-     334957610.80909234, 4900655.902620312, 3918794.7474433887, 6019603.514160249,
-     2586126.9915436916, 3460278.8353394237, 1542510.8806206004, 2167039.0080082663,
-     985670.2186253846, 1421978.7261092511, 615353.0385347179, 711113.6730898629,
-     383987.5492318403, 468244.9344125035, 261252.3233689702, 327512.08608867525,
-     1165.3757883915423, 73159.44253545202, 129020.4405981964, 299930.56474247813,
-     2631.538529105442]
+# throughput_edge = \
+#     [3862688.7621603487, 19021274.39551297, 13976966.488004338, 12883229.126237411,
+#      62748446.4772795, 335078.22512172756, 201147.4180277644, 341278.77542362927,
+#      178443.2029448546, 289101.5165324247, 139015.9324152796, 215083.80950931073,
+#      106358.96480910413, 150844.82511560526, 79753.12359804267, 110956.937530071,
+#      59148.98757829669, 71927.46467740077, 53050.799905928296, 57305.65690528417,
+#      228.62774426073665, 16538.749286947925, 23945.877333373934, 54944.874617783746,
+#      675.0004023315921]
+# # throughput_server = [5 + i for i in range(25)]
+# throughput_server = \
+#     [87982236.4851958, 148355327.10273772, 74201246.74608992, 60706991.70393705,
+#      334957610.80909234, 4900655.902620312, 3918794.7474433887, 6019603.514160249,
+#      2586126.9915436916, 3460278.8353394237, 1542510.8806206004, 2167039.0080082663,
+#      985670.2186253846, 1421978.7261092511, 615353.0385347179, 711113.6730898629,
+#      383987.5492318403, 468244.9344125035, 261252.3233689702, 327512.08608867525,
+#      1165.3757883915423, 73159.44253545202, 129020.4405981964, 299930.56474247813,
+#      2631.538529105442]
 
 # 计算最小值和最大值
 min_latency = min(min(latency_edge), min(latency_server))
 max_latency = max(max(latency_edge), max(latency_server))
-min_throughput = min(min(throughput_edge), min(throughput_server))
-max_throughput = max(max(throughput_edge), max(throughput_server))
+# min_throughput = min(min(throughput_edge), min(throughput_server))
+# max_throughput = max(max(throughput_edge), max(throughput_server))
 
 if max_latency == min_latency:
     raise ValueError("Max and min latencies are the same. This will cause division by zero.")
-if max_throughput == min_throughput:
-    raise ValueError("Max and min throughputs are the same. This will cause division by zero.")
+# if max_throughput == min_throughput:
+#     raise ValueError("Max and min throughputs are the same. This will cause division by zero.")
 
 
 class TaskOffloadingEnv(gym.Env):
@@ -125,13 +125,18 @@ class TaskOffloadingEnv(gym.Env):
 
         if action == 0:  # Execute on edge
             latency = latency_edge[self.current_task] + data_transmission_t[self.current_task]
-            throughput = throughput_edge[self.current_task]
+            # throughput = throughput_edge[self.current_task]
         else:  # Execute on server
             latency = latency_server[self.current_task] + data_transmission_t_[self.current_task]
-            throughput = throughput_server[self.current_task]
+            # throughput = throughput_server[self.current_task]
+
+        # Use max function to get throughput as the larger of the two latencies
+        throughput = max(sum(latency_edge[:self.current_task + 1]) + data_transmission_t[self.current_task],
+                         sum(latency_server[self.current_task:]) + data_transmission_t_[self.current_task])
 
         normalized_latency = (latency - min_latency) / (max_latency - min_latency)
-        normalized_throughput = (throughput - min_throughput) / (max_throughput - min_throughput)
+        # normalized_throughput = (throughput - min_throughput) / (max_throughput - min_throughput)
+        normalized_throughput = (throughput - min_latency) / (max_latency - min_latency)
 
         critic_weight = 10.0  # Adjust this based on the importance you want to give to the critic's recommendations
 
