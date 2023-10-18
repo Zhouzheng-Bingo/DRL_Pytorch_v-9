@@ -111,7 +111,7 @@ if __name__ == '__main__':
     custom_callback = CustomCallback(eval_env, check_freq=1000, log_dir="./tensorboard_logs/")
 
     # Train the agent with callback
-    model.learn(total_timesteps=1000, callback=[eval_callback, custom_callback])
+    model.learn(total_timesteps=100000, callback=[eval_callback, custom_callback])
 
     # Save the trained model
     model.save("dqn_task_offloading")
@@ -147,7 +147,6 @@ if __name__ == '__main__':
         action, _ = model.predict(obs)
         actions_taken.append(action[0])
         obs, _, done, _ = env.step(action)
-        env.envs[0].actions_taken.append(action)
     print("Actions taken by the trained agent:", actions_taken)
 
     # Plot the results

@@ -162,19 +162,20 @@ class TaskOffloadingEnv(gym.Env):
         # normalized_throughput = (throughput - min_throughput) / (max_throughput - min_throughput)
         normalized_throughput = (throughput - min_latency) / (max_latency - min_latency)
 
-        critic_weight = 100.0  # Adjust this based on the importance you want to give to the critic's recommendations
+        critic_weight = 1.0  # Adjust this based on the importance you want to give to the critic's recommendations
 
         # Original reward based on latency and throughput
         reward = -self.alpha * np.log(normalized_latency + 1e-3) + \
                  (1 - self.alpha) * np.log(normalized_throughput + 1e-3)
-
+        print("Reward:", reward)
         self.previous_action = action
         # self.state.append(action[0])
         # Add the critic's evaluation to the reward
         critic_reward = self.critic_evaluate()
+        print("Critic's reward:", critic_reward)
         normalized_critic_reward = (critic_reward - 0) / (1 - 0)  # Since min is 0 and max is 1
         reward += critic_weight * normalized_critic_reward
-
+        print("Reward after adding critic's reward:", reward)
         self.current_task += 1
 
         if self.current_task == 25:
