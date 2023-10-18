@@ -133,7 +133,7 @@ class TaskOffloadingEnv(gym.Env):
         normalized_latency = (latency - min_latency) / (max_latency - min_latency)
         normalized_throughput = (throughput - min_throughput) / (max_throughput - min_throughput)
 
-        critic_weight = 1.0  # Adjust this based on the importance you want to give to the critic's recommendations
+        critic_weight = 10.0  # Adjust this based on the importance you want to give to the critic's recommendations
 
         # Original reward based on latency and throughput
         reward = -self.alpha * np.log(normalized_latency + 1e-3) + \
