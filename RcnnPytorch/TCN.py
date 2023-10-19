@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.nn.utils import weight_norm
-from measure_energy_flag import get_cpu_usage, get_memory_usage, get_gpu_power
+from data_acquisition.Energy.measure_energy_flag import get_cpu_usage, get_memory_usage, get_gpu_power
 
 
 class Chomp1d(nn.Module):

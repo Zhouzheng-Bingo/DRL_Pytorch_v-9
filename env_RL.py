@@ -1,6 +1,6 @@
 import numpy as np
 import gym
-from per_layer_time import partition_recommendations
+from RcnnPytorch.per_layer_time import partition_recommendations
 
 # t
 # latency_edge = [10 + i*2 for i in range(25)]

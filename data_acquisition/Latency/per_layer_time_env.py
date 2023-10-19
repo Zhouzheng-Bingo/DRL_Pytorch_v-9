@@ -1,5 +1,5 @@
-from TCN import TCN
-from model import Net
+from RcnnPytorch.TCN import TCN
+from RcnnPytorch.model import Net
 import numpy as np
 import torch
 import time

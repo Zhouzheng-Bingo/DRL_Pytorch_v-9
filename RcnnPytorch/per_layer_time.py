@@ -1,5 +1,5 @@
-from TCN import TCN
-from model import Net
+from .TCN import TCN
+from .model import Net
 import numpy as np
 import matplotlib.pyplot as plt
 import pywt
