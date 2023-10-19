@@ -57,6 +57,8 @@ class CustomCallback(BaseCallback):
         self.log_dir = log_dir
         self.episode_rewards = []
         self.episode_actions = []
+        self.best_mean_reward = -np.inf
+        self.no_improvement_steps = 0
 
     def _on_step(self):
         # This method will be called by the model after each call to `env.step()`.
@@ -83,6 +85,17 @@ class CustomCallback(BaseCallback):
             for i in range(self.eval_env.action_space.n):
                 self.logger.record(f'actions/action_{i}', episode_actions.count(i) / len(episode_actions))
 
+            # Check for improvement
+            if mean_reward > self.best_mean_reward:
+                self.best_mean_reward = mean_reward
+                self.no_improvement_steps = 0
+            else:
+                self.no_improvement_steps += 1
+
+            if self.no_improvement_steps >= 5:
+                print("No improvement for 5 consecutive checks. Stopping training...")
+                return False
+
         return True
 
 
@@ -103,6 +116,11 @@ if __name__ == '__main__':
                 exploration_final_eps=0.01,  # Added
                 exploration_fraction=0.2)  # Modified
 
+    # model = DQN("MlpPolicy", env, verbose=1, tensorboard_log="./tensorboard_logs/",
+    #             learning_rate=1e-3,  # Modified
+    #             exploration_final_eps=0.02,  # Added
+    #             exploration_fraction=0.3)  # Modified
+
     # Define the evaluation callback
     eval_callback = EvalCallback(eval_env,
                                  best_model_save_path='./logs/',
@@ -111,7 +129,7 @@ if __name__ == '__main__':
     custom_callback = CustomCallback(eval_env, check_freq=1000, log_dir="./tensorboard_logs/")
 
     # Train the agent with callback
-    model.learn(total_timesteps=100000, callback=[eval_callback, custom_callback])
+    model.learn(total_timesteps=1000000, callback=[eval_callback, custom_callback])
 
     # Save the trained model
     model.save("dqn_task_offloading")
