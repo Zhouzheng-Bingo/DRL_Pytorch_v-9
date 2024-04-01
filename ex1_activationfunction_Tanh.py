@@ -1,54 +1,51 @@
+import gym
+import matplotlib
 import numpy as np
+import torch as th
+import torch.nn as nn
 from stable_baselines3 import DQN
 from stable_baselines3.common.vec_env import DummyVecEnv
-from stable_baselines3.common.callbacks import EvalCallback
-from stable_baselines3.common.utils import linear_schedule
-from stable_baselines3.common.callbacks import BaseCallback
-from env_RL import TaskOffloadingEnv
-import matplotlib
-
-matplotlib.use('TkAgg')  # 使用TkAgg后端，你也可以尝试其他后端名称
+from stable_baselines3.common.callbacks import EvalCallback, BaseCallback
+from stable_baselines3.common.policies import BasePolicy
+from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
+from stable_baselines3.common.utils import get_schedule_fn, linear_schedule
 import matplotlib.pyplot as plt
 
-'''
-# 将下边这一段贴到stable_baselines3.common.utils.py中，否则导包stable_baselines3.common.utils.py会报错
-# def linear_schedule(initial_value):
-#     """
-#     Linear learning rate schedule.
-#     :param initial_value: (float) Initial learning rate.
-#     :return: (function)
-#     """
-#     def func(progress_remaining):
-#         """
-#         Progress will decrease from 1 (beginning) to 0
-#         :param progress_remaining: (float)
-#         :return: (float)
-#         """
-#         return progress_remaining * initial_value
-#
-#     return func
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-def linear_schedule(initial_value, final_value, schedule_timesteps):
-    """
-    Linear learning rate schedule.
-    :param initial_value: (float) Initial learning rate.
-    :param final_value: (float) Final learning rate.
-    :param schedule_timesteps: (int) Number of timesteps for the schedule.
-    :return: (function)
-    """
-    def func(t):
-        """
-        Progress will decrease from 1 (beginning) to 0
-        :param t: (int) Current timestep.
-        :return: (float)
-        """
-        fraction = min(float(t) / schedule_timesteps, 1.0)
-        return initial_value + fraction * (final_value - initial_value)
+from env_RL import TaskOffloadingEnv
 
-    return func
-'''
+# 确保matplotlib使用TkAgg后端
+matplotlib.use('TkAgg')
 
+# 定义自定义特征提取器
+class CustomFeatureExtractor(BaseFeaturesExtractor):
+    def __init__(self, observation_space: gym.spaces.Space, features_dim: int = 256):
+        super(CustomFeatureExtractor, self).__init__(observation_space, features_dim=features_dim)
+        self.network = nn.Sequential(
+            nn.Linear(observation_space.shape[0], features_dim),
+            nn.Tanh(),  # 使用Tanh作为激活函数
+            nn.Linear(features_dim, features_dim),
+            nn.Tanh()
+        )
 
+    def forward(self, observations: th.Tensor) -> th.Tensor:
+        return self.network(observations)
+
+# 定义自定义策略
+class CustomDQNPolicy(BasePolicy):
+    def __init__(self, *args, **kwargs):
+        super(CustomDQNPolicy, self).__init__(*args, **kwargs,
+                                              features_extractor_class=CustomFeatureExtractor,
+                                              features_extractor_kwargs={'features_dim': 256})
+        self.net_arch = [256, 256]  # 定义网络结构
+        self.activation_fn = nn.Tanh  # 定义激活函数
+
+    def _build(self, lr_schedule):
+        self.mlp_extractor = self.features_extractor
+
+# 定义自定义回调
 class CustomCallback(BaseCallback):
     def __init__(self, eval_env, check_freq, log_dir):
         super(CustomCallback, self).__init__()
@@ -57,8 +54,6 @@ class CustomCallback(BaseCallback):
         self.log_dir = log_dir
         self.episode_rewards = []
         self.episode_actions = []
-        # self.best_mean_reward = -np.inf
-        # self.no_improvement_steps = 0
 
     def _on_step(self):
         # This method will be called by the model after each call to `env.step()`.
@@ -100,42 +95,37 @@ class CustomCallback(BaseCallback):
 
 
 if __name__ == '__main__':
-    # Initialize environment
+    # 初始化环境
     env = TaskOffloadingEnv(alpha=0.5)
-    env = DummyVecEnv([lambda: env])  # DQN requires a vectorized environment
+    env = DummyVecEnv([lambda: env])
 
-    # Create evaluation environment
+    # 创建评估环境
     eval_env = DummyVecEnv([lambda: TaskOffloadingEnv(alpha=0.7)])
 
-    # Set up a dynamic learning rate using linear_schedule
-    learning_rate_schedule = linear_schedule(1e-4, 1e-6, 100000)  # Modified
+    # 定义动态学习率
+    learning_rate_schedule = linear_schedule(1e-4, 1e-6, 100000)
 
-    # Define the DQN agent with dynamic learning rate and adjusted exploration strategy
+    # 使用自定义策略创建DQN模型
     model = DQN("MlpPolicy", env, verbose=1, tensorboard_log="./tensorboard_logs/",
                 learning_rate=learning_rate_schedule,  # Modified
                 exploration_final_eps=0.01,  # Added
                 exploration_fraction=0.2)  # Modified
 
-    # model = DQN("MlpPolicy", env, verbose=1, tensorboard_log="./tensorboard_logs/",
-    #             learning_rate=1e-3,  # Modified
-    #             exploration_final_eps=0.02,  # Added
-    #             exploration_fraction=0.3)  # Modified
-
     # 定义评估回调
     eval_callback = EvalCallback(eval_env, best_model_save_path='./logs/',
                                  log_path='./logs/', eval_freq=1000)
-
     custom_callback = CustomCallback(eval_env, check_freq=1000, log_dir="./tensorboard_logs/")
 
-    # Train the agent with callback
+    # 训练智能体
     model.learn(total_timesteps=1000000, callback=[eval_callback, custom_callback])
 
-    # Save the trained model
+    # 保存训练好的模型
     model.save("dqn_task_offloading")
 
-    # Load the trained model for evaluation
+    # 加载训练好的模型进行评估
     model = DQN.load("dqn_task_offloading")
 
+    # 测试训练好的智能体
     # Evaluate the trained agent's performance
     num_episodes = 10
     average_reward = 0
