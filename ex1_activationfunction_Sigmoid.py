@@ -23,15 +23,15 @@ matplotlib.use('TkAgg')
 
 
 # 定义自定义特征提取器
-class CustomNetworkTanh(BaseFeaturesExtractor):
+class CustomNetworkSigmoid(BaseFeaturesExtractor):
     def __init__(self, observation_space: gym.spaces.Space, features_dim: int = 64):
-        super(CustomNetworkTanh, self).__init__(observation_space, features_dim)
+        super(CustomNetworkSigmoid, self).__init__(observation_space, features_dim)
         # 定义网络结构
         self.network = nn.Sequential(
-            nn.Linear(self._observation_space.shape[0], features_dim),
-            nn.Tanh(),
+            nn.Linear(observation_space.shape[0], features_dim),
+            nn.Sigmoid(),
             nn.Linear(features_dim, features_dim),
-            nn.Tanh()
+            nn.Sigmoid()
         )
 
     def forward(self, observations: torch.Tensor) -> torch.Tensor:
@@ -44,7 +44,7 @@ class CustomNetworkTanh(BaseFeaturesExtractor):
 #         super(CustomMlpPolicy, self).__init__(*args, **kwargs)
 #
 #         # 定义自定义的网络结构
-#         self.features_extractor = CustomNetworkTanh(self.features_dim)
+#         self.features_extractor = CustomNetworkSigmoid(self.features_dim)
 
 
 # 定义自定义回调
@@ -104,7 +104,7 @@ if __name__ == '__main__':
     env = DummyVecEnv([lambda: env])
 
     policy_kwargs = dict(
-        features_extractor_class=CustomNetworkTanh,
+        features_extractor_class=CustomNetworkSigmoid,
         features_extractor_kwargs=dict(features_dim=64),
     )
 
