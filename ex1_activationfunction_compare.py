@@ -155,7 +155,7 @@ if __name__ == '__main__':
         custom_callback = CustomCallback(eval_env, check_freq=1000, log_dir="./tensorboard_logs/",
                                          activation_fn_name=name)
         # 训练智能体
-        model.learn(total_timesteps=1000, callback=[eval_callback, custom_callback])
+        model.learn(total_timesteps=1000000, callback=[eval_callback, custom_callback])
 
         # 保存训练好的模型
         model.save(f"dqn_task_offloading_{name}")

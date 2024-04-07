@@ -7,12 +7,11 @@ from stable_baselines3.common.callbacks import BaseCallback
 from env_RL import TaskOffloadingEnv
 import matplotlib
 
-import os
-
-os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-
 matplotlib.use('TkAgg')  # 使用TkAgg后端，你也可以尝试其他后端名称
 import matplotlib.pyplot as plt
+
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
 '''
 # 将下边这一段贴到stable_baselines3.common.utils.py中，否则导包stable_baselines3.common.utils.py会报错
@@ -111,12 +110,22 @@ if __name__ == '__main__':
     # Create evaluation environment
     eval_env = DummyVecEnv([lambda: TaskOffloadingEnv(alpha=0.7)])
 
-    # Set up a dynamic learning rate using linear_schedule
-    learning_rate_schedule = linear_schedule(1e-4, 1e-6, 100000)  # Modified
-    # learning_rate_schedule = 1e-6
+    # # Set up a dynamic learning rate using linear_schedule
+    # learning_rate_schedule = linear_schedule(1e-4, 1e-6, 100000)  # Modified
+
+    # 选择学习率策略
+    learning_rate_option = 'low'  # 选项: 'high', 'low', 'dynamic'
+
+    if learning_rate_option == 'high':
+        learning_rate = 1e-3  # 高固定学习率
+    elif learning_rate_option == 'low':
+        learning_rate = 1e-5  # 低固定学习率
+    elif learning_rate_option == 'dynamic':
+        learning_rate = linear_schedule(1e-3, 1e-5, 100000)  # 动态学习率
+
     # Define the DQN agent with dynamic learning rate and adjusted exploration strategy
     model = DQN("MlpPolicy", env, verbose=1, tensorboard_log="./tensorboard_logs/",
-                learning_rate=learning_rate_schedule,  # Modified
+                learning_rate=learning_rate,  # Modified
                 exploration_final_eps=0.01,  # Added
                 exploration_fraction=0.2)  # Modified
 

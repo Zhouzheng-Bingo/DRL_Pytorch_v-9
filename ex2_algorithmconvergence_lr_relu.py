@@ -1,58 +1,53 @@
+import gym
+import matplotlib
 import numpy as np
+import torch
+import torch.nn as nn
 from stable_baselines3 import DQN
 from stable_baselines3.common.vec_env import DummyVecEnv
-from stable_baselines3.common.callbacks import EvalCallback
-from stable_baselines3.common.utils import linear_schedule
-from stable_baselines3.common.callbacks import BaseCallback
-from env_RL import TaskOffloadingEnv
-import matplotlib
+from stable_baselines3.common.callbacks import EvalCallback, BaseCallback
+from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
+from stable_baselines3.common.utils import get_schedule_fn, linear_schedule
+import matplotlib.pyplot as plt
 
 import os
 
+from stable_baselines3.dqn.policies import DQNPolicy, MlpPolicy
+
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-matplotlib.use('TkAgg')  # 使用TkAgg后端，你也可以尝试其他后端名称
-import matplotlib.pyplot as plt
+from env_RL import TaskOffloadingEnv
 
-'''
-# 将下边这一段贴到stable_baselines3.common.utils.py中，否则导包stable_baselines3.common.utils.py会报错
-# def linear_schedule(initial_value):
-#     """
-#     Linear learning rate schedule.
-#     :param initial_value: (float) Initial learning rate.
-#     :return: (function)
-#     """
-#     def func(progress_remaining):
-#         """
-#         Progress will decrease from 1 (beginning) to 0
-#         :param progress_remaining: (float)
-#         :return: (float)
-#         """
-#         return progress_remaining * initial_value
+# 确保matplotlib使用TkAgg后端
+matplotlib.use('TkAgg')
+
+
+# 定义自定义特征提取器
+class CustomNetworkReLU(BaseFeaturesExtractor):
+    def __init__(self, observation_space: gym.spaces.Space, features_dim: int = 64):
+        super(CustomNetworkReLU, self).__init__(observation_space, features_dim)
+        # 定义网络结构
+        self.network = nn.Sequential(
+            nn.Linear(observation_space.shape[0], features_dim),
+            nn.ReLU(),
+            nn.Linear(features_dim, features_dim),
+            nn.ReLU()
+        )
+
+    def forward(self, observations: torch.Tensor) -> torch.Tensor:
+        return self.network(observations)
+
+
+# 定义自定义策略
+# class CustomMlpPolicy(MlpPolicy):
+#     def __init__(self, *args, **kwargs):
+#         super(CustomMlpPolicy, self).__init__(*args, **kwargs)
 #
-#     return func
-
-def linear_schedule(initial_value, final_value, schedule_timesteps):
-    """
-    Linear learning rate schedule.
-    :param initial_value: (float) Initial learning rate.
-    :param final_value: (float) Final learning rate.
-    :param schedule_timesteps: (int) Number of timesteps for the schedule.
-    :return: (function)
-    """
-    def func(t):
-        """
-        Progress will decrease from 1 (beginning) to 0
-        :param t: (int) Current timestep.
-        :return: (float)
-        """
-        fraction = min(float(t) / schedule_timesteps, 1.0)
-        return initial_value + fraction * (final_value - initial_value)
-
-    return func
-'''
+#         # 定义自定义的网络结构
+#         self.features_extractor = CustomNetworkReLU(self.features_dim)
 
 
+# 定义自定义回调
 class CustomCallback(BaseCallback):
     def __init__(self, eval_env, check_freq, log_dir):
         super(CustomCallback, self).__init__()
@@ -61,8 +56,7 @@ class CustomCallback(BaseCallback):
         self.log_dir = log_dir
         self.episode_rewards = []
         self.episode_actions = []
-        # self.best_mean_reward = -np.inf
-        # self.no_improvement_steps = 0
+        self.all_actions = []  # 初始化空列表以收集所有动作
 
     def _on_step(self):
         # This method will be called by the model after each call to `env.step()`.
@@ -77,6 +71,7 @@ class CustomCallback(BaseCallback):
                     obs, reward, done, _ = self.eval_env.step(action)
                     ep_reward += reward
                     episode_actions.append(action)
+                    self.all_actions.append(action[0])
                 episode_rewards.append(ep_reward)
 
             mean_reward = np.mean(episode_rewards)
@@ -104,42 +99,53 @@ class CustomCallback(BaseCallback):
 
 
 if __name__ == '__main__':
-    # Initialize environment
+    # 初始化环境
     env = TaskOffloadingEnv(alpha=0.5)
-    env = DummyVecEnv([lambda: env])  # DQN requires a vectorized environment
+    env = DummyVecEnv([lambda: env])
 
-    # Create evaluation environment
+    policy_kwargs = dict(
+        features_extractor_class=CustomNetworkReLU,
+        features_extractor_kwargs=dict(features_dim=64),
+    )
+
+    # 创建评估环境
     eval_env = DummyVecEnv([lambda: TaskOffloadingEnv(alpha=0.7)])
 
-    # Set up a dynamic learning rate using linear_schedule
-    learning_rate_schedule = linear_schedule(1e-4, 1e-6, 100000)  # Modified
-    # learning_rate_schedule = 1e-6
-    # Define the DQN agent with dynamic learning rate and adjusted exploration strategy
-    model = DQN("MlpPolicy", env, verbose=1, tensorboard_log="./tensorboard_logs/",
-                learning_rate=learning_rate_schedule,  # Modified
-                exploration_final_eps=0.01,  # Added
-                exploration_fraction=0.2)  # Modified
+    # # 定义动态学习率
+    # learning_rate_schedule = linear_schedule(1e-4, 1e-6, 100000)
 
-    # model = DQN("MlpPolicy", env, verbose=1, tensorboard_log="./tensorboard_logs/",
-    #             learning_rate=1e-3,  # Modified
-    #             exploration_final_eps=0.02,  # Added
-    #             exploration_fraction=0.3)  # Modified
+    # 选择学习率策略
+    learning_rate_option = 'dynamic'  # 选项: 'high', 'low', 'dynamic'
+
+    if learning_rate_option == 'high':
+        learning_rate = 1e-3  # 高固定学习率
+    elif learning_rate_option == 'low':
+        learning_rate = 1e-5  # 低固定学习率
+    elif learning_rate_option == 'dynamic':
+        learning_rate = linear_schedule(1e-3, 1e-5, 100000)  # 动态学习率
+
+    # 使用自定义策略创建DQN模型
+    model = DQN("MlpPolicy", env, verbose=1, tensorboard_log="./tensorboard_logs/",
+                policy_kwargs=policy_kwargs,
+                learning_rate=learning_rate,
+                exploration_final_eps=0.01,
+                exploration_fraction=0.2)
 
     # 定义评估回调
     eval_callback = EvalCallback(eval_env, best_model_save_path='./logs/',
                                  log_path='./logs/', eval_freq=1000)
-
     custom_callback = CustomCallback(eval_env, check_freq=1000, log_dir="./tensorboard_logs/")
 
-    # Train the agent with callback
+    # 训练智能体
     model.learn(total_timesteps=1000000, callback=[eval_callback, custom_callback])
 
-    # Save the trained model
+    # 保存训练好的模型
     model.save("dqn_task_offloading")
 
-    # Load the trained model for evaluation
+    # 加载训练好的模型进行评估
     model = DQN.load("dqn_task_offloading")
 
+    # 测试训练好的智能体
     # Evaluate the trained agent's performance
     num_episodes = 10
     average_reward = 0
@@ -169,6 +175,13 @@ if __name__ == '__main__':
         actions_taken.append(action[0])
         obs, _, done, _ = env.step(action)
     print("Actions taken by the trained agent:", actions_taken)
+
+    # Action distribution after evaluation
+    plt.hist(custom_callback.all_actions, bins=range(env.action_space.n + 1), align='left', rwidth=0.8)
+    plt.xlabel('Actions')
+    plt.ylabel('Frequency')
+    plt.title('Action Distribution')
+    plt.show()
 
     # Plot the results
     results = np.load('logs/evaluations.npz')
