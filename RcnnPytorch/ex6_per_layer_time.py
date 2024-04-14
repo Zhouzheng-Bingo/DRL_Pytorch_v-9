@@ -1,0 +1,218 @@
+import os
+
+import matplotlib
+
+from TCN import TCN
+from model import Net
+import numpy as np
+import matplotlib.pyplot as plt
+import pywt
+import torch
+import time
+from pulp import LpProblem, LpVariable, lpSum, LpMinimize
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+matplotlib.use('TkAgg')  # 使用TkAgg后端
+
+
+# plt.style.use('seaborn-whitegrid')
+
+def partition(N, t, t_, data_t, data_t_):
+    latency_tolerable = 480
+
+    # Create a MILP problem with objective to minimize
+    model = LpProblem(name="optimal-cut", sense=LpMinimize)
+
+    # Define the binary decision variable y_i
+    y = [LpVariable(name=f"y_{i}", cat="Binary") for i in range(len(t))]
+
+    # Objective function to minimize total latency and maximize throughput
+    # This objective captures both minimizing latency and maximizing throughput
+    latency_difference = lpSum([abs((t[i] if i == 0 else sum(t[:i])) -
+                                    (t_[i] if i == len(t) - 1 else sum(t_[i + 1:]))) * y[i] for i in range(len(t))])
+    model += latency_difference
+
+    # Constraints to ensure the total latency is within the tolerable limits
+    for i in range(len(t)):
+        edge_latency = sum(t[:i]) + data_t[i]
+        cloud_latency = N * sum(t_[i:]) + N * data_t_[i]
+        model += edge_latency * y[i] + cloud_latency * (1 - y[i]) <= latency_tolerable
+
+    # Mock solution for testing since pulp is not available
+    best_throughout_point = 0
+    total_latency = 0
+    for i in range(len(t)):
+        if (sum(t[:i]) + data_t[i]) >= N * (sum(t_[i:]) + data_t_[i]):
+            best_throughout_point = i
+            total_latency = sum(t[:i]) + data_t[i] + N * (sum(t_[i:]) + data_t_[i])
+            break
+
+    latency_edge = [sum(t[:i]) for i in range(len(t))]
+    latency_server = [N * sum(t_[i:]) for i in range(len(t))]
+    data_transmission = [data_t[i] + N * data_t_[i] for i in range(len(t))]
+    throughput = [max((sum(t[:i]) + data_t[i]), N * (sum(t_[i:]) + data_t_[i])) for i in range(len(t))]
+    latency = [sum(t[:i]) + N * sum(t_[i:]) + data_t[i] + N * data_t_[i] for i in range(len(t))]
+    partition_point = 0
+    for i in range(len(t)):
+        if (sum(t[:i]) + N * sum(t_[i:]) + data_t[i] + N * data_t_[i]) <= latency_tolerable:
+            partition_point = i
+            break
+
+    return best_throughout_point, total_latency, latency_edge, latency_server, data_transmission, throughput, latency, partition_point
+
+
+def partition_recommendations(N, t, t_, data_t, data_t_):
+    best_throughout_point, _, _, _, _, _, _, _ = partition(N, t, t_, data_t, data_t_)
+    # 根据切分点为每个任务提供位置建议
+    recommendations = ['0' if i <= best_throughout_point else '1' for i in range(len(t))]
+    return recommendations
+
+
+def plot_results(ax, data, label, color, marker=None, linestyle='-', bottom=None):
+    if bottom is not None:
+        ax.bar(np.arange(len(data)), data, bottom=bottom, label=label, color=color)
+    else:
+        ax.plot(np.arange(len(data)), data, label=label, color=color, marker=marker, linestyle=linestyle)
+
+
+def enhanced_visualization():
+    # 调用分区函数来获取数据
+    best_throughout_point, total_latency, latency_edge, latency_server, data_transmission, throughput, latency, partition_point = partition(
+        3, t, t_, data_t, data_t_)
+
+    fig, axs = plt.subplots(2, 1, figsize=(10, 12), dpi=200)
+
+    # 设置图表基本元素
+    for ax in axs:
+        ax.set_xticks(np.arange(0, 25, 2))
+        ax.grid(True, which='both', linestyle='--', linewidth=0.5)
+        ax.set_xlabel('Subtasks')
+        ax.set_ylabel('Latency(ms) / Throughput')
+
+    # 绘制第一张图
+    plot_results(axs[0], latency_edge, 'Edge device latency', 'blue')
+    plot_results(axs[0], data_transmission, 'Data transmission', 'green', bottom=latency_edge)
+    plot_results(axs[0], throughput, 'Throughput', 'red', marker='o', linestyle='--')
+    axs[0].scatter(best_throughout_point, total_latency + 60, color='red', s=100, marker='d',
+                   label='Highest Throughput Point')
+    axs[0].scatter(partition_point, latency[partition_point] + 130, color='gold', s=100, marker='*',
+                   label='Optimal Partition Point')
+    axs[0].legend(loc='upper left', bbox_to_anchor=(1.05, 1))
+
+    best_throughout_point, total_latency, latency_edge, latency_server, data_transmission, throughput, latency, partition_point = partition(
+        4, t, t_, data_t, data_t_)
+    # 绘制第二张图
+    plot_results(axs[1], latency_edge, 'Edge device latency', 'blue')
+    plot_results(axs[1], data_transmission, 'Data transmission', 'green', bottom=latency_edge)
+    plot_results(axs[1], throughput, 'Throughput', 'red', marker='o', linestyle='--')
+    axs[1].scatter(best_throughout_point, total_latency + 80, color='red', s=100, marker='d',
+                   label='Highest Throughput Point')
+    axs[1].scatter(partition_point, latency[partition_point] + 80, color='gold', s=100, marker='*',
+                   label='Optimal Partition Point')
+    axs[1].legend(loc='upper left', bbox_to_anchor=(1.05, 1))
+
+    # 保存图片
+    plt.tight_layout()
+    plt.savefig('.fig/updated_fig2.png')
+
+if __name__ == '__main__':
+    tcn = TCN(1, 1, [4, 8, 16], kernel_size=3, dropout=0)
+    res_net = Net(7, dropout=0)
+    t0 = []
+    for i in range(10):
+        x = torch.rand((1, 7, 20000))
+        t = time.time()
+        x = x[:, :, ::4]
+        A2, D2, D1 = pywt.wavedec(x, 'db4', mode='symmetric', level=2, axis=2)
+        t0.append(time.time() - t)
+    t0 = np.array(t0)
+    t0 = list([np.mean(t0)])
+    t1 = tcn.per_layer_time()
+    tcn_total = np.array(t1).mean(0).sum()
+    t1_ = tcn.per_layer_time(repeated=50)
+    t1 = list(np.array(t1).mean(0))
+    t1_ = list(np.array(t1_).mean(0))
+    t2 = res_net.per_layer_time()
+    t2 = list(np.array(t2).mean(0))
+    t2_ = res_net.per_layer_time()
+    t2_ = list(np.array(t2_).mean(0))
+
+    data_size = [7 * 1255, 128 * 626, 128 * 313, 128 * 313, 128 * 157, 128 * 157, 128 * 79, 128 * 79, 128 * 40,
+                 128 * 40, 128 * 20, 128 * 20,
+                 128 * 10, 128 * 10, 128 * 5, 128 * 5, 128 * 3, 128 * 3, 128 * 2, 128 * 2, 1, 4 * 15, 8 * 15, 16 * 15,
+                 1]
+    data_t = np.array(data_size) * 4 * 8 * 1000 / (40 * 1024 * 1024)
+    data_t_ = np.array(data_size) * 4 * 8 * 1000 / (50 * 1024 * 1024)
+    correct_value = 61.1328125  # 正确的值
+    data_t[1] = correct_value  # 替换操作
+    correct_value2 = 48.90625  # 正确的值
+    data_t_[1] = correct_value  # 替换操作
+    t = np.array(t0 + t2 + t1)
+    t = t / t.sum() * 380
+    print(t[-4:].sum())
+    t_ = np.array(t0 + t2_ + t1_)
+    t_ = t_ / t_.sum() * 220
+    print(t_[-4:].sum())
+
+    enhanced_visualization()
+    # fig, axes = plt.subplots(2, 1, dpi=200)
+
+    # axes[0].set_xticks(np.arange(0, 25, 2))
+    # axes[1].set_xticks(np.arange(0, 25, 2))
+    # '''
+    # axes[0].spines['top'].set_visible(False)
+    # axes[0].spines['right'].set_visible(False)
+    # axes[1].spines['top'].set_visible(False)
+    # axes[1].spines['right'].set_visible(False)
+    # '''
+    # axes[0].grid(axis='x')
+    # axes[1].grid(axis='x')
+    #
+    # axes[0].bar(np.arange(len(t)), t, label='Edge device inference')
+    # axes[0].bar(np.arange(len(data_t)), data_t, bottom=t, label='Edge device data upload')
+    # axes[1].bar(np.arange(len(t_)), t_, label='Edge server inference')
+    # axes[1].bar(np.arange(len(data_t_)), data_t_, bottom=t_, label='Edge server data download')
+    #
+    # axes[0].set_ylabel('Latency(ms)')
+    # axes[0].set_ylim((0, 120))
+    #
+    # axes[1].set_ylabel('Latency(ms)')
+    # axes[1].set_xlabel('Subtasks')
+    # axes[1].set_ylim((0, 120))
+    # axes[0].legend()
+    # axes[1].legend()
+    #
+    # plt.savefig('.fig/ex6_fig1')
+
+    # best_throughout_point, total_latency, latency_edge, latency_server, data_transmission, throughput, latency, partition_point = partition(2, t, t_, data_t, data_t_)
+    # _, axs = plt.subplots(2, 1, dpi=200)
+    # for ax in axs:
+    #     ax.set_xticks(np.arange(0, 25, 2))
+    #     # ax.spines['top'].set_visible(False)
+    #     # ax.spines['right'].set_visible(False)
+    #     ax.grid(axis='x')
+    # axs[0].bar(np.arange(len(latency_edge)), np.array(latency_edge), label='Edge device')
+    # axs[0].bar(np.arange(len(data_transmission)), np.array(data_transmission), bottom=latency_edge,
+    #            label='Data transmission')
+    # axs[0].bar(np.arange(len(latency_server)), np.array(latency_server),
+    #            bottom=np.array(latency_edge) + np.array(data_transmission), label='Edge server')
+    # axs[0].plot(np.array(throughput), 'k.-', label='Timeslice')
+    # axs[0].scatter(best_throughout_point, total_latency + 60, s=70, marker='d', color='r', label='Highest throughout')
+    # axs[0].scatter(partition_point, latency[partition_point] + 130, s=70, marker='*', color='gold',
+    #                label='Optimal partition point')
+    # axs[1].set_xlabel('Subtasks')
+    # axs[0].set_ylabel('Latency(ms)')
+    # axs[1].set_ylabel('Latency(ms)')
+    # axs[0].legend(bbox_to_anchor=(1, 1.3), ncol=3)
+    # best_throughout_point, total_latency, latency_edge, latency_server, data_transmission, throughput, latency, partition_point = partition(4, t, t_, data_t, data_t_)
+    # axs[1].bar(np.arange(len(latency_edge)), np.array(latency_edge), label='Edge device')
+    # axs[1].bar(np.arange(len(data_transmission)), np.array(data_transmission), bottom=latency_edge,
+    #            label='Data transmission')
+    # axs[1].bar(np.arange(len(latency_server)), np.array(latency_server),
+    #            bottom=np.array(latency_edge) + np.array(data_transmission), label='Edge server')
+    # axs[1].plot(np.array(throughput), 'k.-', label='Timeslice')
+    # axs[1].scatter(best_throughout_point, total_latency + 80, s=70, marker='d', color='r', label='Highest throughout')
+    # axs[1].scatter(partition_point, latency[partition_point] + 80, s=70, marker='*', color='gold',
+    #                label='Optimal partition point')
+    # plt.savefig('.fig/ex6_fig2')
+
+

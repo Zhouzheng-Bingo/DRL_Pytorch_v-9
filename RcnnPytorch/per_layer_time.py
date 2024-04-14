@@ -1,11 +1,17 @@
-from .TCN import TCN
-from .model import Net
+import os
+
+import matplotlib
+
+from TCN import TCN
+from model import Net
 import numpy as np
 import matplotlib.pyplot as plt
 import pywt
 import torch
 import time
 from pulp import LpProblem, LpVariable, lpSum, LpMinimize
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+matplotlib.use('TkAgg')  # 使用TkAgg后端
 
 
 # plt.style.use('seaborn-whitegrid')
@@ -123,7 +129,7 @@ if __name__ == '__main__':
     axes[0].legend()
     axes[1].legend()
 
-    plt.savefig('.fig/fig1')
+    plt.savefig('.fig/ex6_fig1')
 
     best_throughout_point, total_latency, latency_edge, latency_server, data_transmission, throughput, latency, partition_point = partition(2, t, t_, data_t, data_t_)
     _, axs = plt.subplots(2, 1, dpi=200)

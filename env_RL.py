@@ -338,10 +338,10 @@ class TaskOffloadingEnv(gym.Env):
         self.previous_action = action
         # self.state.append(action[0])
         # Add the critic's evaluation to the reward
-        critic_reward = self.critic_evaluate()
-        print("Critic's reward:", critic_reward)
-        normalized_critic_reward = (critic_reward - 0) / (1 - 0)  # Since min is 0 and max is 1
-        reward += critic_weight * normalized_critic_reward
+        # critic_reward = self.critic_evaluate()
+        # print("Critic's reward:", critic_reward)
+        # normalized_critic_reward = (critic_reward - 0) / (1 - 0)  # Since min is 0 and max is 1
+        # reward += critic_weight * normalized_critic_reward
         print("Reward after adding critic's reward:", reward)
         self.current_task += 1
 
