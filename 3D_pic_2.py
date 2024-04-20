@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
 # Load the CSV file into a DataFrame
-focused_data_df = pd.read_csv('./3Ddata/offload_data_dqn.csv')
+focused_data_df = pd.read_csv('./3Ddata/无critic_dqn立体行为分布.csv')
 
 # Create a 3D plot
 fig = plt.figure(figsize=(10, 8))

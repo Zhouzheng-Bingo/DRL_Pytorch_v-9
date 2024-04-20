@@ -10,7 +10,7 @@ font.set_name('Times New Roman')
 
 # Load the CSV data into a DataFrame
 # df = pd.read_csv('./3Ddata/offload_data.csv')
-df = pd.read_csv('./3Ddata/offload_data_a2c.csv')
+df = pd.read_csv('./3Ddata/offload_data_dqn.csv')
 
 
 # Extract columns from the DataFrame
