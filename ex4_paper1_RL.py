@@ -1,6 +1,9 @@
 import numpy as np
 import gym
-from RcnnPytorch.per_layer_time import partition_recommendations
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.distributions import Categorical
 
 # t
 # latency_edge = [10 + i*2 for i in range(25)]
@@ -238,140 +241,156 @@ if max_latency == min_latency:
 #     raise ValueError("Max and min throughputs are the same. This will cause division by zero.")
 
 
+# Define the Actor Network
+class Actor(nn.Module):
+    def __init__(self):
+        super(Actor, self).__init__()
+        self.fc1 = nn.Linear(6, 128)
+        self.fc2 = nn.Linear(128, 2)  # Assuming two actions
+
+    def forward(self, x):
+        x = torch.relu(self.fc1(x))
+        x = self.fc2(x)
+        return torch.softmax(x, dim=-1)
+
+# Define the Critic Network
+class Critic(nn.Module):
+    def __init__(self):
+        super(Critic, self).__init__()
+        self.fc1 = nn.Linear(6, 128)
+        self.fc2 = nn.Linear(128, 1)
+
+    def forward(self, x):
+        x = torch.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
+
 class TaskOffloadingEnv(gym.Env):
     def __init__(self, alpha=0.5):
         super(TaskOffloadingEnv, self).__init__()
         self.alpha = alpha
+        self.actor = Actor()
+        self.critic = Critic()
+        self.optimizer_actor = optim.Adam(self.actor.parameters(), lr=0.001)
+        self.optimizer_critic = optim.Adam(self.critic.parameters(), lr=0.001)
 
-        # self.compute_requirements = [i * 10 for i in range(1, 26)]  # example compute requirements
-        # self.data_transmission_requirements = [i for i in range(1, 26)]  # example data transmission requirements
-        self.compute_requirements = \
-            [25, 24, 6, 4, 1,
-             8, 15, 7, 20, 10,
-             16, 15, 23, 10, 2,
-             25, 13, 14, 18, 20,
-             16, 17, 5, 9, 1]
-        self.data_transmission_requirements = \
-            [25, 21, 19, 21, 24,
-             17, 10, 18, 5, 15,
-             9, 10, 2, 15, 23,
-             0, 12, 11, 7, 5,
-             9, 8, 20, 16, 24]
-        self.action_space = gym.spaces.Discrete(2)  # Either edge or server for each task
-        self.observation_space = gym.spaces.Box(low=0, high=250, shape=(6,), dtype=np.float32)  # As defined above
+        self.action_space = gym.spaces.Discrete(2)
+        self.observation_space = gym.spaces.Box(low=0, high=250, shape=(6,), dtype=np.float32)
 
+        self.latency_edge = np.array([
+            0.002274322509765625, 0.05997405529022217, 0.050271587371826174, 0.029629735946655272,
+            0.02869260311126709, 0.017710041999816895, 0.0184151554107666, 0.011902337074279784,
+            0.012034716606140137, 0.008485541343688965, 0.008024764060974122, 0.005768003463745117,
+            0.006492080688476562, 0.005338711738586426, 0.004825563430786133, 0.004467272758483886,
+            0.004373922348022461, 0.0036278438568115236, 0.005011301040649414, 0.004368014335632324,
+            0.001481480598449707, 0.0042125463485717775, 0.0028664302825927735, 0.0031097793579101564,
+            0.00032026290893554687
+        ], dtype=np.float32)
+        self.latency_server = np.array([
+            9.984970092773438e-05, 0.004100675582885742, 0.002580385208129883, 0.001679844856262207,
+            0.001979794502258301, 0.0014796495437622071, 0.0016596317291259766, 0.00118133544921875,
+            0.0012986087799072266, 0.0009001541137695312, 0.0010400533676147461, 0.0008999967575073242,
+            0.0010000324249267577, 0.0008200836181640625, 0.0009798955917358397, 0.0007816505432128906,
+            0.0008580923080444336, 0.0008201265335083008, 0.0009300851821899414, 0.000800185203552246,
+            0.0003800058364868164, 0.0005401086807250977, 0.0005399370193481445, 0.0006599569320678711,
+            5.9995651245117184e-05
+        ], dtype=np.float32)
         self.current_task = 0
-        self.previous_action = -1
-
-        self.actions_taken = []
 
     def reset(self):
         self.current_task = 0
-        self.previous_action = -1
-        self.actions_taken = []  # Reset the actions taken list
-        initial_state = [
-            self.compute_requirements[self.current_task],
-            self.data_transmission_requirements[self.current_task],
-            self.current_task, 25 - self.current_task, 0,
-            self.previous_action
-        ]  # Last value is for previous action
-        return np.array(initial_state)
+        return self.get_state()
 
-    # def critic_evaluate(self):
-    #     if not self.actions_taken:
-    #         return 0
-    #     critic_recommendations = partition_recommendations(2, latency_edge, latency_server, data_transmission_t, data_transmission_t_)
-    #     print("Critic's partition recommendation:", critic_recommendations)
-    #     matched_decisions = sum([1 if act == rec else 0 for act, rec in zip(self.actions_taken, critic_recommendations)])
-    #     critic_reward = matched_decisions / len(self.actions_taken)
-    #     return critic_reward
-
-    def critic_evaluate(self):
-        if not self.actions_taken:
-            return 0
-        critic_recommendations = partition_recommendations(2, latency_edge, latency_server, data_transmission_t,
-                                                           data_transmission_t_)
-        # Convert the values in critic_recommendations to integers
-        critic_recommendations = [int(val) for val in critic_recommendations]
-
-        # Convert all the values in self.actions_taken to integers
-        self.actions_taken = [int(act) for act in self.actions_taken]
-
-        print("Actions taken by the agent:", self.actions_taken)  # 打印智能体的行动
-        print("Critic's partition recommendation:", critic_recommendations)  # 打印critic的建议
-        matched_decisions = sum(
-            [1 if act == rec else 0 for act, rec in zip(self.actions_taken, critic_recommendations)])
-
-        print("Number of matched decisions:", matched_decisions)  # 打印匹配的数量
-        critic_reward = matched_decisions  # 直接返回匹配任务的数量
-        return critic_reward
+    def get_state(self):
+        state = np.array([
+            self.current_task, 25 - self.current_task, self.latency_edge[self.current_task],
+            self.latency_server[self.current_task], data_transmission_t[self.current_task],
+            data_transmission_t_[self.current_task]
+        ], dtype=np.float32)
+        return state
 
     def step(self, action):
-        if self.current_task == 25:
-            # All tasks are done
-            return self.reset()
+        done = False
+        reward = 0
 
-        # Add the current action to the actions_taken list
-        self.actions_taken.append(action)
+        if self.current_task < 25:
+            # if action == 0:
+            #     reward = -self.latency_edge[self.current_task]
+            # else:
+            #     reward = -self.latency_server[self.current_task]
 
-        if action == 0:  # Execute on edge
-            latency = latency_edge[self.current_task] + data_transmission_t[self.current_task]
-            # throughput = throughput_edge[self.current_task]
-        else:  # Execute on server
-            latency = latency_server[self.current_task] + data_transmission_t_[self.current_task]
-            # throughput = throughput_server[self.current_task]
+            if action == 0:  # Action corresponding to 'edge'
+                latency = latency_edge[self.current_task] + data_transmission_t[self.current_task]
+            else:  # Action corresponding to 'server'
+                latency = latency_server[self.current_task] + data_transmission_t_[self.current_task]
 
-        # Use max function to get throughput as the larger of the two latencies
-        throughput = max(sum(latency_edge[:self.current_task + 1]) + data_transmission_t[self.current_task],
-                         sum(latency_server[self.current_task:]) + data_transmission_t_[self.current_task])
+            throughput = sum(latency_edge) if action == 0 else sum(latency_server)  # Example calculation
 
-        normalized_latency = (latency - min_latency) / (max_latency - min_latency)
-        # normalized_throughput = (throughput - min_throughput) / (max_throughput - min_throughput)
-        normalized_throughput = (throughput - min_latency) / (max_latency - min_latency)
+            # Normalize the latency and throughput
+            normalized_latency = (latency - min_latency) / (max_latency - min_latency)
+            normalized_throughput = (throughput - min_latency) / (max_latency - min_latency)
 
-        critic_weight = 1.0  # Adjust this based on the importance you want to give to the critic's recommendations
+            # Calculate the reward using the formula from your original environment
+            reward = -self.alpha * np.log(normalized_latency + 1e-8) + (1 - self.alpha) * np.log(
+                normalized_throughput + 1e-8)
 
-        # Original reward based on latency and throughput
-        reward = -self.alpha * np.log(normalized_latency + 1e-3) + \
-                 (1 - self.alpha) * np.log(normalized_throughput + 1e-3)
-        print("Reward:", reward)
-        self.previous_action = action
-        # self.state.append(action[0])
-        # Add the critic's evaluation to the reward
-        critic_reward = self.critic_evaluate()
-        print("Critic's reward:", critic_reward)
-        normalized_critic_reward = (critic_reward - 0) / (1 - 0)  # Since min is 0 and max is 1
-        reward += critic_weight * normalized_critic_reward
-        print("Reward after adding critic's reward:", reward)
-        self.current_task += 1
+            next_state = self.get_state()
 
-        if self.current_task == 25:
-            done = True
+            # Update networks only if it's not the last task
+            if self.current_task < 24:
+                try:
+                    state_tensor = torch.tensor(self.get_state(), dtype=torch.float32).unsqueeze(0)
+                    action_prob = self.actor(state_tensor)
+                    value = self.critic(state_tensor)
+                    dist = Categorical(action_prob)
+                    action_sample = dist.sample()
+
+                    critic_value_next = self.critic(torch.tensor(next_state, dtype=torch.float32).unsqueeze(0))
+                    td_target = reward + 0.99 * critic_value_next
+                    td_error = td_target - value
+
+                    # Actor loss
+                    actor_loss = -dist.log_prob(action_sample) * td_error.detach()
+                    # Critic loss
+                    critic_loss = td_error.pow(2)
+
+                    # Optimize the actor
+                    self.optimizer_actor.zero_grad()
+                    actor_loss.backward()
+                    self.optimizer_actor.step()
+
+                    # Optimize the critic
+                    self.optimizer_critic.zero_grad()
+                    critic_loss.backward()
+                    self.optimizer_critic.step()
+                except Exception as e:
+                    print(f"Error during training: {str(e)}")
+                    print(f"TD Error: {td_error}, Actor Loss: {actor_loss}, Critic Loss: {critic_loss}")
+
+
+            self.current_task += 1
         else:
-            done = False
+            done = True
+            next_state = np.zeros(self.observation_space.shape)
 
-        next_state = [self.compute_requirements[self.current_task] if self.current_task < 25 else 0,
-                      self.data_transmission_requirements[self.current_task] if self.current_task < 25 else 0,
-                      self.current_task, 25 - self.current_task, action,
-                      self.previous_action]
+        if self.current_task >= 25:
+            done = True
+            next_state = np.zeros(self.observation_space.shape)
 
-        return np.array(next_state), reward, done, {}
+        return next_state, reward, done, {}
 
-    def render(self, mode="human"):
+    def render(self, mode='human', close=False):
         pass
 
 
 if __name__ == "__main__":
-    # Sample usage
-    env = TaskOffloadingEnv(alpha=0.7)
-
-    # Reset environment
+    env = TaskOffloadingEnv(alpha=0.5)
     state = env.reset()
-    total_reward = 0
-    done = False
-    while not done:
-        action = np.random.choice([0, 1])  # Random action for testing
+    for _ in range(100):
+        action = env.action_space.sample()
         next_state, reward, done, _ = env.step(action)
-        total_reward += reward
+        if done:
+            break
 
-    print(f"Total Reward after completing all tasks: {total_reward}")
+    print("Example run completed.")
+

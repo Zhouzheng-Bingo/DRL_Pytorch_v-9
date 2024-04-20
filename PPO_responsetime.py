@@ -6,7 +6,7 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 # 导入您自定义的环境
 from env_RL import TaskOffloadingEnv
 
-
+import time
 class CustomPPOCallback(BaseCallback):
     def __init__(self, eval_env, check_freq, log_dir):
         super(CustomPPOCallback, self).__init__()
@@ -15,26 +15,33 @@ class CustomPPOCallback(BaseCallback):
         self.log_dir = log_dir
         self.episode_rewards = []
         self.episode_actions = []
-
+        self.response_times = []
     def _on_step(self):
         if self.n_calls % self.check_freq == 0:
             obs = self.eval_env.reset()
             episode_rewards = []
             episode_actions = []
+            episode_response_times = []
             for _ in range(10):
                 done, ep_reward = False, 0
                 while not done:
+                    start_time = time.time()
                     action, _ = self.model.predict(obs, deterministic=True)
+                    response_time = time.time() - start_time  # End timing
+                    episode_response_times.append(response_time)
                     obs, reward, done, _ = self.eval_env.step(action)
                     ep_reward += reward
                     episode_actions.append(action)
                 episode_rewards.append(ep_reward)
+            self.response_times.extend(episode_response_times)
 
             mean_reward = np.mean(episode_rewards)
             std_reward = np.std(episode_rewards)
+            mean_response_time = np.mean(episode_response_times)
 
             self.logger.record('evaluation/mean_reward', mean_reward)
             self.logger.record('evaluation/std_reward', std_reward)
+            self.logger.record('evaluation/mean_response_time', mean_response_time)
 
             for i in range(self.eval_env.action_space.n):
                 self.logger.record(f'actions/action_{i}', episode_actions.count(i) / len(episode_actions))

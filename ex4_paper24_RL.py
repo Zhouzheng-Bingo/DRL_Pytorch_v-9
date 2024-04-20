@@ -239,9 +239,12 @@ if max_latency == min_latency:
 
 
 class TaskOffloadingEnv(gym.Env):
-    def __init__(self, alpha=0.5):
+    def __init__(self, alpha=0.5, gamma=0.95, epsilon=0.1, learning_rate=0.1):
         super(TaskOffloadingEnv, self).__init__()
         self.alpha = alpha
+        self.gamma = gamma  # Discount factor for future rewards
+        self.epsilon = epsilon  # Exploration rate
+        self.learning_rate = learning_rate  # Learning rate for Q-learning
 
         # self.compute_requirements = [i * 10 for i in range(1, 26)]  # example compute requirements
         # self.data_transmission_requirements = [i for i in range(1, 26)]  # example data transmission requirements
@@ -263,7 +266,9 @@ class TaskOffloadingEnv(gym.Env):
         self.current_task = 0
         self.previous_action = -1
 
-        self.actions_taken = []
+        self.q_table = np.zeros((25, 2))  # Initialize Q-table with zero (25 states * 2 actions each)
+
+        self.reset()
 
     def reset(self):
         self.current_task = 0
@@ -275,7 +280,7 @@ class TaskOffloadingEnv(gym.Env):
             self.current_task, 25 - self.current_task, 0,
             self.previous_action
         ]  # Last value is for previous action
-        return np.array(initial_state)
+        return np.array(initial_state, dtype=np.float32)
 
     # def critic_evaluate(self):
     #     if not self.actions_taken:
@@ -286,33 +291,18 @@ class TaskOffloadingEnv(gym.Env):
     #     critic_reward = matched_decisions / len(self.actions_taken)
     #     return critic_reward
 
-    def critic_evaluate(self):
-        if not self.actions_taken:
-            return 0
-        critic_recommendations = partition_recommendations(2, latency_edge, latency_server, data_transmission_t,
-                                                           data_transmission_t_)
-        # Convert the values in critic_recommendations to integers
-        critic_recommendations = [int(val) for val in critic_recommendations]
-
-        # Convert all the values in self.actions_taken to integers
-        self.actions_taken = [int(act) for act in self.actions_taken]
-
-        print("Actions taken by the agent:", self.actions_taken)  # 打印智能体的行动
-        print("Critic's partition recommendation:", critic_recommendations)  # 打印critic的建议
-        matched_decisions = sum(
-            [1 if act == rec else 0 for act, rec in zip(self.actions_taken, critic_recommendations)])
-
-        print("Number of matched decisions:", matched_decisions)  # 打印匹配的数量
-        critic_reward = matched_decisions  # 直接返回匹配任务的数量
-        return critic_reward
-
     def step(self, action):
         if self.current_task == 25:
             # All tasks are done
-            return self.reset()
+            return self.reset(), 0, True, {}
 
         # Add the current action to the actions_taken list
         self.actions_taken.append(action)
+
+        if np.random.random() < self.epsilon:
+            action = self.action_space.sample()  # Exploration: random action
+        else:
+            action = np.argmax(self.q_table[self.current_task])  # Exploitation: best known action
 
         if action == 0:  # Execute on edge
             latency = latency_edge[self.current_task] + data_transmission_t[self.current_task]
@@ -321,27 +311,27 @@ class TaskOffloadingEnv(gym.Env):
             latency = latency_server[self.current_task] + data_transmission_t_[self.current_task]
             # throughput = throughput_server[self.current_task]
 
-        # Use max function to get throughput as the larger of the two latencies
-        throughput = max(sum(latency_edge[:self.current_task + 1]) + data_transmission_t[self.current_task],
-                         sum(latency_server[self.current_task:]) + data_transmission_t_[self.current_task])
+        # Estimate disturbance
+        disturbance = self.estimate_disturbance(action)
 
-        normalized_latency = (latency - min_latency) / (max_latency - min_latency)
-        # normalized_throughput = (throughput - min_throughput) / (max_throughput - min_throughput)
-        normalized_throughput = (throughput - min_latency) / (max_latency - min_latency)
+        # Compute reward
+        reward = self.calculate_reward(latency, disturbance)
 
-        critic_weight = 1.0  # Adjust this based on the importance you want to give to the critic's recommendations
+        # Q-learning update
+        self.q_table_update(action, reward)
 
-        # Original reward based on latency and throughput
-        reward = -self.alpha * np.log(normalized_latency + 1e-3) + \
-                 (1 - self.alpha) * np.log(normalized_throughput + 1e-3)
-        print("Reward:", reward)
-        self.previous_action = action
+        # Q-learning update
+        old_value = self.q_table[self.current_task, action]
+        next_max = np.max(self.q_table[(self.current_task + 1) % 25])
+        self.q_table[self.current_task, action] = old_value + self.learning_rate * (
+                    reward + self.gamma * next_max - old_value)
+
         # self.state.append(action[0])
         # Add the critic's evaluation to the reward
-        critic_reward = self.critic_evaluate()
-        print("Critic's reward:", critic_reward)
-        normalized_critic_reward = (critic_reward - 0) / (1 - 0)  # Since min is 0 and max is 1
-        reward += critic_weight * normalized_critic_reward
+        # critic_reward = self.critic_evaluate()
+        # print("Critic's reward:", critic_reward)
+        # normalized_critic_reward = (critic_reward - 0) / (1 - 0)  # Since min is 0 and max is 1
+        # reward += critic_weight * normalized_critic_reward
         print("Reward after adding critic's reward:", reward)
         self.current_task += 1
 
@@ -350,28 +340,61 @@ class TaskOffloadingEnv(gym.Env):
         else:
             done = False
 
-        next_state = [self.compute_requirements[self.current_task] if self.current_task < 25 else 0,
-                      self.data_transmission_requirements[self.current_task] if self.current_task < 25 else 0,
-                      self.current_task, 25 - self.current_task, action,
-                      self.previous_action]
+        next_state = self.reset() if done else self.get_state()
 
         return np.array(next_state), reward, done, {}
+
+    def estimate_disturbance(self, action):
+        # Placeholder for a real disturbance estimation based on the difference in expected and actual latency
+        expected_latency = latency_edge if action == 0 else latency_server
+        actual_latency = np.random.normal(loc=expected_latency, scale=0.1)  # Simulate actual with noise
+        return actual_latency - expected_latency
+
+    def calculate_reward(self, latency, disturbance):
+        # Calculate throughput for comparison; using max as a placeholder to simulate operational conditions
+        throughput = max(
+            sum(latency_edge[:self.current_task + 1]) + data_transmission_t[self.current_task],
+            sum(latency_server[self.current_task:]) + data_transmission_t_[self.current_task])
+
+        # Normalize the latency and throughput to the range [0, 1] for consistent reward scaling
+        normalized_latency = (latency - min(latency_edge.min(), latency_server.min())) / \
+                             (max(latency_edge.max(), latency_server.max()) - min(latency_edge.min(),
+                                                                                            latency_server.min()))
+        normalized_throughput = (throughput - min(latency_edge.min(), latency_server.min())) / \
+                                (max(latency_edge.max(), latency_server.max()) - min(latency_edge.min(),
+                                                                                               latency_server.min()))
+
+        # Calculate the disturbance impact
+        disturbance_impact = np.linalg.norm(disturbance)  # Use norm for vector disturbance or absolute value for scalar
+
+        # Calculate reward considering both latency and throughput, penalize based on disturbance
+        # Alpha controls the balance between latency and throughput importance
+        reward = -self.alpha * np.log(normalized_latency + 1e-3) + \
+                 (1 - self.alpha) * np.log(normalized_throughput + 1e-3) - disturbance_impact
+
+        return reward
+
+    def q_table_update(self, action, reward):
+        old_value = self.q_table[self.current_task, action]
+        next_max = np.max(self.q_table[(self.current_task + 1) % 25])
+        self.q_table[self.current_task, action] = old_value + self.learning_rate * (
+                    reward + self.gamma * next_max - old_value)
+
+    def get_state(self):
+        return [self.compute_requirements[self.current_task], self.data_transmission_requirements[self.current_task],
+                self.current_task, 25 - self.current_task, 0, self.previous_action]
 
     def render(self, mode="human"):
         pass
 
 
 if __name__ == "__main__":
-    # Sample usage
     env = TaskOffloadingEnv(alpha=0.7)
-
-    # Reset environment
     state = env.reset()
     total_reward = 0
     done = False
     while not done:
-        action = np.random.choice([0, 1])  # Random action for testing
-        next_state, reward, done, _ = env.step(action)
+        action = env.action_space.sample()  # Randomly sample an action
+        state, reward, done, _ = env.step(action)
         total_reward += reward
-
-    print(f"Total Reward after completing all tasks: {total_reward}")
+    print("Total Reward after completing all tasks:", total_reward)

@@ -1,6 +1,6 @@
 import torch as t
 
-from res_block import Residual, FirstBlock, LastBlock
+from .res_block import Residual, FirstBlock, LastBlock
 from data_acquisition.Energy.measure_energy_flag import get_cpu_usage, get_memory_usage, get_gpu_power
 
 
