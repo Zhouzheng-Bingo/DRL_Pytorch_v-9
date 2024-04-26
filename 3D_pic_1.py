@@ -35,6 +35,9 @@ ax.set_xlabel('Episode')
 ax.set_ylabel('Task Index')
 ax.set_zlabel('Offload Location')
 
+# Set the x-axis ticks
+ax.set_xticks([0, 2, 4, 6, 8])  # Specify the ticks to show on the x-axis
+
 # Adding a title and a legend
 # ax.set_title('(a)')
 ax.legend()
